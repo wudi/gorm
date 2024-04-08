@@ -133,6 +133,15 @@ func TestRunCallbacks(t *testing.T) {
 	if DB.Where("Code = ?", "unique_code").First(&p).Error == nil {
 		t.Fatalf("Can't find a deleted record")
 	}
+
+	beforeCallTimes := p.AfterFindCallTimes
+	if DB.Where("Code = ?", "unique_code").Find(&p).Error != nil {
+		t.Fatalf("Find don't raise error when record not found")
+	}
+
+	if p.AfterFindCallTimes != beforeCallTimes {
+		t.Fatalf("AfterFind should not be called")
+	}
 }
 
 func TestCallbacksWithErrors(t *testing.T) {
@@ -354,10 +363,31 @@ func TestSetColumn(t *testing.T) {
 
 	AssertEqual(t, result, product)
 
-	// Code changed, price not selected, price should not change
-	DB.Model(&product).Select("code").Updates(map[string]interface{}{"name": "L1214"})
+	// Select to change Code, but nothing updated, price should not change
+	DB.Model(&product).Select("code").Updates(Product3{Name: "L1214", Code: "L1213"})
 
-	if product.Price != 220 || product.Code != "L1213" {
+	if product.Price != 220 || product.Code != "L1213" || product.Name != "Product New3" {
+		t.Errorf("invalid data after update, got %+v", product)
+	}
+
+	DB.Model(&product).Updates(Product3{Code: "L1214"})
+	if product.Price != 270 || product.Code != "L1214" {
+		t.Errorf("invalid data after update, got %+v", product)
+	}
+
+	// Code changed, price should changed
+	DB.Model(&product).Select("Name", "Code", "Price").Updates(Product3{Name: "Product New4", Code: ""})
+	if product.Name != "Product New4" || product.Price != 320 || product.Code != "" {
+		t.Errorf("invalid data after update, got %+v", product)
+	}
+
+	DB.Model(&product).UpdateColumns(Product3{Code: "L1215"})
+	if product.Price != 320 || product.Code != "L1215" {
+		t.Errorf("invalid data after update, got %+v", product)
+	}
+
+	DB.Model(&product).Session(&gorm.Session{SkipHooks: true}).Updates(Product3{Code: "L1216"})
+	if product.Price != 320 || product.Code != "L1216" {
 		t.Errorf("invalid data after update, got %+v", product)
 	}
 
@@ -365,9 +395,19 @@ func TestSetColumn(t *testing.T) {
 	DB.First(&result2, product.ID)
 
 	AssertEqual(t, result2, product)
+
+	product2 := Product3{Name: "Product", Price: 0}
+	DB.Session(&gorm.Session{SkipHooks: true}).Create(&product2)
+
+	if product2.Price != 0 {
+		t.Errorf("invalid price after create without hooks, got %+v", product2)
+	}
 }
 
 func TestHooksForSlice(t *testing.T) {
+	DB.Migrator().DropTable(&Product3{})
+	DB.AutoMigrate(&Product3{})
+
 	products := []*Product3{
 		{Name: "Product-1", Price: 100},
 		{Name: "Product-2", Price: 200},
@@ -412,5 +452,117 @@ func TestHooksForSlice(t *testing.T) {
 		if products2[idx].Price != value {
 			t.Errorf("invalid price for product #%v, expects: %v, got %v", idx, value, products2[idx].Price)
 		}
+	}
+}
+
+type Product4 struct {
+	gorm.Model
+	Name  string
+	Code  string
+	Price int64
+	Owner string
+	Item  ProductItem
+}
+
+type ProductItem struct {
+	gorm.Model
+	Code               string
+	Product4ID         uint
+	AfterFindCallTimes int
+}
+
+func (pi ProductItem) BeforeCreate(*gorm.DB) error {
+	if pi.Code == "invalid" {
+		return errors.New("invalid item")
+	}
+	return nil
+}
+
+func (pi *ProductItem) AfterFind(*gorm.DB) error {
+	pi.AfterFindCallTimes = pi.AfterFindCallTimes + 1
+	return nil
+}
+
+func TestFailedToSaveAssociationShouldRollback(t *testing.T) {
+	DB.Migrator().DropTable(&Product4{}, &ProductItem{})
+	DB.AutoMigrate(&Product4{}, &ProductItem{})
+
+	product := Product4{Name: "Product-1", Price: 100, Item: ProductItem{Code: "invalid"}}
+	if err := DB.Create(&product).Error; err == nil {
+		t.Errorf("should got failed to save, but error is nil")
+	}
+
+	if DB.First(&Product4{}, "name = ?", product.Name).Error == nil {
+		t.Errorf("should got RecordNotFound, but got nil")
+	}
+
+	product = Product4{Name: "Product-2", Price: 100, Item: ProductItem{Code: "valid"}}
+	if err := DB.Create(&product).Error; err != nil {
+		t.Errorf("should create product, but got error %v", err)
+	}
+
+	if err := DB.First(&Product4{}, "name = ?", product.Name).Error; err != nil {
+		t.Errorf("should find product, but got error %v", err)
+	}
+
+	var productWithItem Product4
+	if err := DB.Session(&gorm.Session{SkipHooks: true}).Preload("Item").First(&productWithItem, "name = ?", product.Name).Error; err != nil {
+		t.Errorf("should find product, but got error %v", err)
+	}
+
+	if productWithItem.Item.AfterFindCallTimes != 0 {
+		t.Fatalf("AfterFind should not be called times:%d", productWithItem.Item.AfterFindCallTimes)
+	}
+}
+
+type Product5 struct {
+	gorm.Model
+	Name string
+}
+
+var beforeUpdateCall int
+
+func (p *Product5) BeforeUpdate(*gorm.DB) error {
+	beforeUpdateCall = beforeUpdateCall + 1
+	return nil
+}
+
+func TestUpdateCallbacks(t *testing.T) {
+	DB.Migrator().DropTable(&Product5{})
+	DB.AutoMigrate(&Product5{})
+
+	p := Product5{Name: "unique_code"}
+	DB.Model(&Product5{}).Create(&p)
+
+	err := DB.Model(&Product5{}).Where("id", p.ID).Update("name", "update_name_1").Error
+	if err != nil {
+		t.Fatalf("should update success, but got err %v", err)
+	}
+	if beforeUpdateCall != 1 {
+		t.Fatalf("before update should be called")
+	}
+
+	err = DB.Model(Product5{}).Where("id", p.ID).Update("name", "update_name_2").Error
+	if !errors.Is(err, gorm.ErrInvalidValue) {
+		t.Fatalf("should got RecordNotFound, but got %v", err)
+	}
+	if beforeUpdateCall != 1 {
+		t.Fatalf("before update should not be called")
+	}
+
+	err = DB.Model([1]*Product5{&p}).Update("name", "update_name_3").Error
+	if err != nil {
+		t.Fatalf("should update success, but got err %v", err)
+	}
+	if beforeUpdateCall != 2 {
+		t.Fatalf("before update should be called")
+	}
+
+	err = DB.Model([1]Product5{p}).Update("name", "update_name_4").Error
+	if !errors.Is(err, gorm.ErrInvalidValue) {
+		t.Fatalf("should got RecordNotFound, but got %v", err)
+	}
+	if beforeUpdateCall != 2 {
+		t.Fatalf("before update should not be called")
 	}
 }

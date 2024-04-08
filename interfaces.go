@@ -26,6 +26,10 @@ type Plugin interface {
 	Initialize(*DB) error
 }
 
+type ParamsFilter interface {
+	ParamsFilter(ctx context.Context, sql string, params ...interface{}) (string, []interface{})
+}
+
 // ConnPool db conns pool interface
 type ConnPool interface {
 	PrepareContext(ctx context.Context, query string) (*sql.Stmt, error)
@@ -40,51 +44,49 @@ type SavePointerDialectorInterface interface {
 	RollbackTo(tx *DB, name string) error
 }
 
+// TxBeginner tx beginner
 type TxBeginner interface {
 	BeginTx(ctx context.Context, opts *sql.TxOptions) (*sql.Tx, error)
 }
 
+// ConnPoolBeginner conn pool beginner
 type ConnPoolBeginner interface {
 	BeginTx(ctx context.Context, opts *sql.TxOptions) (ConnPool, error)
 }
 
+// TxCommitter tx committer
 type TxCommitter interface {
 	Commit() error
 	Rollback() error
 }
 
-type BeforeCreateInterface interface {
-	BeforeCreate(*DB) error
+// Tx sql.Tx interface
+type Tx interface {
+	ConnPool
+	TxCommitter
+	StmtContext(ctx context.Context, stmt *sql.Stmt) *sql.Stmt
 }
 
-type AfterCreateInterface interface {
-	AfterCreate(*DB) error
+// Valuer gorm valuer interface
+type Valuer interface {
+	GormValue(context.Context, *DB) clause.Expr
 }
 
-type BeforeUpdateInterface interface {
-	BeforeUpdate(*DB) error
+// GetDBConnector SQL db connector
+type GetDBConnector interface {
+	GetDBConn() (*sql.DB, error)
 }
 
-type AfterUpdateInterface interface {
-	AfterUpdate(*DB) error
+// Rows rows interface
+type Rows interface {
+	Columns() ([]string, error)
+	ColumnTypes() ([]*sql.ColumnType, error)
+	Next() bool
+	Scan(dest ...interface{}) error
+	Err() error
+	Close() error
 }
 
-type BeforeSaveInterface interface {
-	BeforeSave(*DB) error
-}
-
-type AfterSaveInterface interface {
-	AfterSave(*DB) error
-}
-
-type BeforeDeleteInterface interface {
-	BeforeDelete(*DB) error
-}
-
-type AfterDeleteInterface interface {
-	AfterDelete(*DB) error
-}
-
-type AfterFindInterface interface {
-	AfterFind(*DB) error
+type ErrorTranslator interface {
+	Translate(err error) error
 }

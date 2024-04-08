@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"gorm.io/gorm"
+	. "gorm.io/gorm/utils/tests"
 )
 
 type Blog struct {
@@ -13,7 +14,7 @@ type Blog struct {
 	Locale     string `gorm:"primary_key"`
 	Subject    string
 	Body       string
-	Tags       []Tag `gorm:"many2many:blogs_tags;"`
+	Tags       []Tag `gorm:"many2many:blog_tags;"`
 	SharedTags []Tag `gorm:"many2many:shared_blog_tags;ForeignKey:id;References:id"`
 	LocaleTags []Tag `gorm:"many2many:locale_blog_tags;ForeignKey:id,locale;References:id"`
 }
@@ -22,7 +23,7 @@ type Tag struct {
 	ID     uint   `gorm:"primary_key"`
 	Locale string `gorm:"primary_key"`
 	Value  string
-	Blogs  []*Blog `gorm:"many2many:blogs_tags"`
+	Blogs  []*Blog `gorm:"many2many:blog_tags"`
 }
 
 func compareTags(tags []Tag, contents []string) bool {
@@ -70,7 +71,7 @@ func TestManyToManyWithMultiPrimaryKeys(t *testing.T) {
 	}
 
 	// Append
-	var tag3 = &Tag{Locale: "ZH", Value: "tag3"}
+	tag3 := &Tag{Locale: "ZH", Value: "tag3"}
 	DB.Model(&blog).Association("Tags").Append([]*Tag{tag3})
 
 	if !compareTags(blog.Tags, []string{"tag1", "tag2", "tag3"}) {
@@ -94,8 +95,8 @@ func TestManyToManyWithMultiPrimaryKeys(t *testing.T) {
 	}
 
 	// Replace
-	var tag5 = &Tag{Locale: "ZH", Value: "tag5"}
-	var tag6 = &Tag{Locale: "ZH", Value: "tag6"}
+	tag5 := &Tag{Locale: "ZH", Value: "tag5"}
+	tag6 := &Tag{Locale: "ZH", Value: "tag6"}
 	DB.Model(&blog).Association("Tags").Replace(tag5, tag6)
 	var tags2 []Tag
 	DB.Model(&blog).Association("Tags").Find(&tags2)
@@ -139,7 +140,7 @@ func TestManyToManyWithCustomizedForeignKeys(t *testing.T) {
 	}
 
 	if name := DB.Dialector.Name(); name == "postgres" {
-		t.Skip("skip postgers due to it only allow unique constraint matching given keys")
+		t.Skip("skip postgres due to it only allow unique constraint matching given keys")
 	}
 
 	DB.Migrator().DropTable(&Blog{}, &Tag{}, "blog_tags", "locale_blog_tags", "shared_blog_tags")
@@ -169,7 +170,7 @@ func TestManyToManyWithCustomizedForeignKeys(t *testing.T) {
 	}
 
 	// Append
-	var tag3 = &Tag{Locale: "ZH", Value: "tag3"}
+	tag3 := &Tag{Locale: "ZH", Value: "tag3"}
 	DB.Model(&blog).Association("SharedTags").Append([]*Tag{tag3})
 	if !compareTags(blog.SharedTags, []string{"tag1", "tag2", "tag3"}) {
 		t.Fatalf("Blog should has three tags after Append")
@@ -200,7 +201,7 @@ func TestManyToManyWithCustomizedForeignKeys(t *testing.T) {
 		t.Fatalf("Preload many2many relations")
 	}
 
-	var tag4 = &Tag{Locale: "ZH", Value: "tag4"}
+	tag4 := &Tag{Locale: "ZH", Value: "tag4"}
 	DB.Model(&blog2).Association("SharedTags").Append(tag4)
 
 	DB.Model(&blog).Association("SharedTags").Find(&tags)
@@ -214,8 +215,8 @@ func TestManyToManyWithCustomizedForeignKeys(t *testing.T) {
 	}
 
 	// Replace
-	var tag5 = &Tag{Locale: "ZH", Value: "tag5"}
-	var tag6 = &Tag{Locale: "ZH", Value: "tag6"}
+	tag5 := &Tag{Locale: "ZH", Value: "tag5"}
+	tag6 := &Tag{Locale: "ZH", Value: "tag6"}
 	DB.Model(&blog2).Association("SharedTags").Replace(tag5, tag6)
 	var tags2 []Tag
 	DB.Model(&blog).Association("SharedTags").Find(&tags2)
@@ -264,7 +265,7 @@ func TestManyToManyWithCustomizedForeignKeys2(t *testing.T) {
 	}
 
 	if name := DB.Dialector.Name(); name == "postgres" {
-		t.Skip("skip postgers due to it only allow unique constraint matching given keys")
+		t.Skip("skip postgres due to it only allow unique constraint matching given keys")
 	}
 
 	DB.Migrator().DropTable(&Blog{}, &Tag{}, "blog_tags", "locale_blog_tags", "shared_blog_tags")
@@ -290,7 +291,7 @@ func TestManyToManyWithCustomizedForeignKeys2(t *testing.T) {
 	DB.Create(&blog2)
 
 	// Append
-	var tag3 = &Tag{Locale: "ZH", Value: "tag3"}
+	tag3 := &Tag{Locale: "ZH", Value: "tag3"}
 	DB.Model(&blog).Association("LocaleTags").Append([]*Tag{tag3})
 	if !compareTags(blog.LocaleTags, []string{"tag1", "tag2", "tag3"}) {
 		t.Fatalf("Blog should has three tags after Append")
@@ -321,7 +322,7 @@ func TestManyToManyWithCustomizedForeignKeys2(t *testing.T) {
 		t.Fatalf("Preload many2many relations")
 	}
 
-	var tag4 = &Tag{Locale: "ZH", Value: "tag4"}
+	tag4 := &Tag{Locale: "ZH", Value: "tag4"}
 	DB.Model(&blog2).Association("LocaleTags").Append(tag4)
 
 	DB.Model(&blog).Association("LocaleTags").Find(&tags)
@@ -335,8 +336,8 @@ func TestManyToManyWithCustomizedForeignKeys2(t *testing.T) {
 	}
 
 	// Replace
-	var tag5 = &Tag{Locale: "ZH", Value: "tag5"}
-	var tag6 = &Tag{Locale: "ZH", Value: "tag6"}
+	tag5 := &Tag{Locale: "ZH", Value: "tag5"}
+	tag6 := &Tag{Locale: "ZH", Value: "tag6"}
 	DB.Model(&blog2).Association("LocaleTags").Replace(tag5, tag6)
 
 	var tags2 []Tag
@@ -409,4 +410,39 @@ func TestManyToManyWithCustomizedForeignKeys2(t *testing.T) {
 	if DB.Model(&blog2).Association("LocaleTags").Count() != 0 {
 		t.Fatalf("EN Blog's tags should be cleared")
 	}
+}
+
+func TestCompositePrimaryKeysAssociations(t *testing.T) {
+	type Label struct {
+		BookID *uint  `gorm:"primarykey"`
+		Name   string `gorm:"primarykey"`
+		Value  string
+	}
+
+	type Book struct {
+		ID     int
+		Name   string
+		Labels []Label
+	}
+
+	DB.Migrator().DropTable(&Label{}, &Book{})
+	if err := DB.AutoMigrate(&Label{}, &Book{}); err != nil {
+		t.Fatalf("failed to migrate, got %v", err)
+	}
+
+	book := Book{
+		Name: "my book",
+		Labels: []Label{
+			{Name: "region", Value: "emea"},
+		},
+	}
+
+	DB.Create(&book)
+
+	var result Book
+	if err := DB.Preload("Labels").First(&result, book.ID).Error; err != nil {
+		t.Fatalf("failed to preload, got error %v", err)
+	}
+
+	AssertEqual(t, book, result)
 }

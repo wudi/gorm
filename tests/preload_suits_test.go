@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"reflect"
 	"sort"
+	"sync/atomic"
 	"testing"
 
 	"gorm.io/gorm"
@@ -1334,7 +1335,7 @@ func TestNilPointerSlice(t *testing.T) {
 	}
 
 	if !reflect.DeepEqual(got[0], want) && !reflect.DeepEqual(got[1], want) {
-		t.Errorf("got %s; want array containing %s", toJSONString(got), toJSONString(want))
+		t.Fatalf("got %s; want array containing %s", toJSONString(got), toJSONString(want))
 	}
 
 	if !reflect.DeepEqual(got[0], want2) && !reflect.DeepEqual(got[1], want2) {
@@ -1497,10 +1498,9 @@ func TestPreloadManyToManyCallbacks(t *testing.T) {
 	}
 	DB.Save(&lvl)
 
-	called := 0
-
+	var called int64
 	DB.Callback().Query().After("gorm:query").Register("TestPreloadManyToManyCallbacks", func(_ *gorm.DB) {
-		called = called + 1
+		atomic.AddInt64(&called, 1)
 	})
 
 	DB.Preload("Level2s").First(&Level1{}, "id = ?", lvl.ID)

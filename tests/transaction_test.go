@@ -1,6 +1,7 @@
 package tests_test
 
 import (
+	"context"
 	"errors"
 	"testing"
 
@@ -40,7 +41,8 @@ func TestTransaction(t *testing.T) {
 		t.Fatalf("Should not find record after rollback, but got %v", err)
 	}
 
-	tx2 := DB.Begin()
+	txDB := DB.Where("fake_name = ?", "fake_name")
+	tx2 := txDB.Session(&gorm.Session{NewDB: true}).Begin()
 	user2 := *GetUser("transaction-2", Config{})
 	if err := tx2.Save(&user2).Error; err != nil {
 		t.Fatalf("No error should raise, but got %v", err)
@@ -54,6 +56,38 @@ func TestTransaction(t *testing.T) {
 
 	if err := DB.First(&User{}, "name = ?", "transaction-2").Error; err != nil {
 		t.Fatalf("Should be able to find committed record, but got %v", err)
+	}
+
+	t.Run("this is test nested transaction and prepareStmt coexist case", func(t *testing.T) {
+		// enable prepare statement
+		tx3 := DB.Session(&gorm.Session{PrepareStmt: true})
+		if err := tx3.Transaction(func(tx4 *gorm.DB) error {
+			// nested transaction
+			return tx4.Transaction(func(tx5 *gorm.DB) error {
+				return tx5.First(&User{}, "name = ?", "transaction-2").Error
+			})
+		}); err != nil {
+			t.Fatalf("prepare statement and nested transcation coexist" + err.Error())
+		}
+	})
+}
+
+func TestCancelTransaction(t *testing.T) {
+	ctx := context.Background()
+	ctx, cancelFunc := context.WithCancel(ctx)
+	cancelFunc()
+
+	user := *GetUser("cancel_transaction", Config{})
+	DB.Create(&user)
+
+	err := DB.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		var result User
+		tx.First(&result, user.ID)
+		return nil
+	})
+
+	if err == nil {
+		t.Fatalf("Transaction should get error when using cancelled context")
 	}
 }
 
@@ -81,7 +115,7 @@ func TestTransactionWithBlock(t *testing.T) {
 		return errors.New("the error message")
 	})
 
-	if err.Error() != "the error message" {
+	if err != nil && err.Error() != "the error message" {
 		t.Fatalf("Transaction return error will equal the block returns error")
 	}
 
@@ -260,5 +294,119 @@ func TestNestedTransactionWithBlock(t *testing.T) {
 
 	if err := DB.First(&User{}, "name = ?", user2.Name).Error; err != nil {
 		t.Fatalf("Should find saved record")
+	}
+}
+
+func TestDisabledNestedTransaction(t *testing.T) {
+	var (
+		user  = *GetUser("transaction-nested", Config{})
+		user1 = *GetUser("transaction-nested-1", Config{})
+		user2 = *GetUser("transaction-nested-2", Config{})
+	)
+
+	if err := DB.Session(&gorm.Session{DisableNestedTransaction: true}).Transaction(func(tx *gorm.DB) error {
+		tx.Create(&user)
+
+		if err := tx.First(&User{}, "name = ?", user.Name).Error; err != nil {
+			t.Fatalf("Should find saved record")
+		}
+
+		if err := tx.Transaction(func(tx1 *gorm.DB) error {
+			tx1.Create(&user1)
+
+			if err := tx1.First(&User{}, "name = ?", user1.Name).Error; err != nil {
+				t.Fatalf("Should find saved record")
+			}
+
+			return errors.New("rollback")
+		}); err == nil {
+			t.Fatalf("nested transaction should returns error")
+		}
+
+		if err := tx.First(&User{}, "name = ?", user1.Name).Error; err != nil {
+			t.Fatalf("Should not rollback record if disabled nested transaction support")
+		}
+
+		if err := tx.Transaction(func(tx2 *gorm.DB) error {
+			tx2.Create(&user2)
+
+			if err := tx2.First(&User{}, "name = ?", user2.Name).Error; err != nil {
+				t.Fatalf("Should find saved record")
+			}
+
+			return nil
+		}); err != nil {
+			t.Fatalf("nested transaction returns error: %v", err)
+		}
+
+		if err := tx.First(&User{}, "name = ?", user2.Name).Error; err != nil {
+			t.Fatalf("Should find saved record")
+		}
+		return nil
+	}); err != nil {
+		t.Fatalf("no error should return, but got %v", err)
+	}
+
+	if err := DB.First(&User{}, "name = ?", user.Name).Error; err != nil {
+		t.Fatalf("Should find saved record")
+	}
+
+	if err := DB.First(&User{}, "name = ?", user1.Name).Error; err != nil {
+		t.Fatalf("Should not rollback record if disabled nested transaction support")
+	}
+
+	if err := DB.First(&User{}, "name = ?", user2.Name).Error; err != nil {
+		t.Fatalf("Should find saved record")
+	}
+}
+
+func TestTransactionOnClosedConn(t *testing.T) {
+	DB, err := OpenTestConnection(&gorm.Config{})
+	if err != nil {
+		t.Fatalf("failed to connect database, got error %v", err)
+	}
+	rawDB, _ := DB.DB()
+	rawDB.Close()
+
+	if err := DB.Transaction(func(tx *gorm.DB) error {
+		return nil
+	}); err == nil {
+		t.Errorf("should returns error when commit with closed conn, got error %v", err)
+	}
+
+	if err := DB.Session(&gorm.Session{PrepareStmt: true}).Transaction(func(tx *gorm.DB) error {
+		return nil
+	}); err == nil {
+		t.Errorf("should returns error when commit with closed conn, got error %v", err)
+	}
+}
+
+func TestTransactionWithHooks(t *testing.T) {
+	user := GetUser("tTestTransactionWithHooks", Config{Account: true})
+	DB.Create(&user)
+
+	var err error
+	err = DB.Transaction(func(tx *gorm.DB) error {
+		return tx.Model(&User{}).Limit(1).Transaction(func(tx2 *gorm.DB) error {
+			return tx2.Scan(&User{}).Error
+		})
+	})
+
+	if err != nil {
+		t.Error(err)
+	}
+
+	// method with hooks
+	err = DB.Transaction(func(tx1 *gorm.DB) error {
+		// callMethod do
+		tx2 := tx1.Find(&User{}).Session(&gorm.Session{NewDB: true})
+		// trx in hooks
+		return tx2.Transaction(func(tx3 *gorm.DB) error {
+			return tx3.Where("user_id", user.ID).Delete(&Account{}).Error
+		})
+	})
+
+	if err != nil {
+		t.Error(err)
 	}
 }

@@ -3,11 +3,12 @@ package tests_test
 import (
 	"testing"
 
+	"gorm.io/gorm"
 	. "gorm.io/gorm/utils/tests"
 )
 
 func TestHasManyAssociation(t *testing.T) {
-	var user = *GetUser("hasmany", Config{Pets: 2})
+	user := *GetUser("hasmany", Config{Pets: 2})
 
 	if err := DB.Create(&user).Error; err != nil {
 		t.Fatalf("errors happened when create: %v", err)
@@ -21,11 +22,28 @@ func TestHasManyAssociation(t *testing.T) {
 	DB.Model(&user2).Association("Pets").Find(&user2.Pets)
 	CheckUser(t, user2, user)
 
+	var pets []Pet
+	DB.Model(&user).Where("name = ?", user.Pets[0].Name).Association("Pets").Find(&pets)
+
+	if len(pets) != 1 {
+		t.Fatalf("should only find one pets, but got %v", len(pets))
+	}
+
+	CheckPet(t, pets[0], *user.Pets[0])
+
+	if count := DB.Model(&user).Where("name = ?", user.Pets[1].Name).Association("Pets").Count(); count != 1 {
+		t.Fatalf("should only find one pets, but got %v", count)
+	}
+
+	if count := DB.Model(&user).Where("name = ?", "not found").Association("Pets").Count(); count != 0 {
+		t.Fatalf("should only find no pet with invalid conditions, but got %v", count)
+	}
+
 	// Count
 	AssertAssociationCount(t, user, "Pets", 2, "")
 
 	// Append
-	var pet = Pet{Name: "pet-has-many-append"}
+	pet := Pet{Name: "pet-has-many-append"}
 
 	if err := DB.Model(&user2).Association("Pets").Append(&pet); err != nil {
 		t.Fatalf("Error happened when append account, got %v", err)
@@ -40,14 +58,14 @@ func TestHasManyAssociation(t *testing.T) {
 
 	AssertAssociationCount(t, user, "Pets", 3, "AfterAppend")
 
-	var pets = []Pet{{Name: "pet-has-many-append-1-1"}, {Name: "pet-has-many-append-1-1"}}
+	pets2 := []Pet{{Name: "pet-has-many-append-1-1"}, {Name: "pet-has-many-append-1-1"}}
 
-	if err := DB.Model(&user2).Association("Pets").Append(&pets); err != nil {
+	if err := DB.Model(&user2).Association("Pets").Append(&pets2); err != nil {
 		t.Fatalf("Error happened when append pet, got %v", err)
 	}
 
-	for _, pet := range pets {
-		var pet = pet
+	for _, pet := range pets2 {
+		pet := pet
 		if pet.ID == 0 {
 			t.Fatalf("Pet's ID should be created")
 		}
@@ -60,7 +78,7 @@ func TestHasManyAssociation(t *testing.T) {
 	AssertAssociationCount(t, user, "Pets", 5, "AfterAppendSlice")
 
 	// Replace
-	var pet2 = Pet{Name: "pet-has-many-replace"}
+	pet2 := Pet{Name: "pet-has-many-replace"}
 
 	if err := DB.Model(&user2).Association("Pets").Replace(&pet2); err != nil {
 		t.Fatalf("Error happened when append pet, got %v", err)
@@ -102,7 +120,7 @@ func TestHasManyAssociation(t *testing.T) {
 }
 
 func TestSingleTableHasManyAssociation(t *testing.T) {
-	var user = *GetUser("hasmany", Config{Team: 2})
+	user := *GetUser("hasmany", Config{Team: 2})
 
 	if err := DB.Create(&user).Error; err != nil {
 		t.Fatalf("errors happened when create: %v", err)
@@ -120,7 +138,7 @@ func TestSingleTableHasManyAssociation(t *testing.T) {
 	AssertAssociationCount(t, user, "Team", 2, "")
 
 	// Append
-	var team = *GetUser("team", Config{})
+	team := *GetUser("team", Config{})
 
 	if err := DB.Model(&user2).Association("Team").Append(&team); err != nil {
 		t.Fatalf("Error happened when append account, got %v", err)
@@ -135,14 +153,14 @@ func TestSingleTableHasManyAssociation(t *testing.T) {
 
 	AssertAssociationCount(t, user, "Team", 3, "AfterAppend")
 
-	var teams = []User{*GetUser("team-append-1", Config{}), *GetUser("team-append-2", Config{})}
+	teams := []User{*GetUser("team-append-1", Config{}), *GetUser("team-append-2", Config{})}
 
 	if err := DB.Model(&user2).Association("Team").Append(&teams); err != nil {
 		t.Fatalf("Error happened when append team, got %v", err)
 	}
 
 	for _, team := range teams {
-		var team = team
+		team := team
 		if team.ID == 0 {
 			t.Fatalf("Team's ID should be created")
 		}
@@ -155,7 +173,7 @@ func TestSingleTableHasManyAssociation(t *testing.T) {
 	AssertAssociationCount(t, user, "Team", 5, "AfterAppendSlice")
 
 	// Replace
-	var team2 = *GetUser("team-replace", Config{})
+	team2 := *GetUser("team-replace", Config{})
 
 	if err := DB.Model(&user2).Association("Team").Replace(&team2); err != nil {
 		t.Fatalf("Error happened when append team, got %v", err)
@@ -197,7 +215,7 @@ func TestSingleTableHasManyAssociation(t *testing.T) {
 }
 
 func TestHasManyAssociationForSlice(t *testing.T) {
-	var users = []User{
+	users := []User{
 		*GetUser("slice-hasmany-1", Config{Pets: 2}),
 		*GetUser("slice-hasmany-2", Config{Pets: 0}),
 		*GetUser("slice-hasmany-3", Config{Pets: 4}),
@@ -251,7 +269,7 @@ func TestHasManyAssociationForSlice(t *testing.T) {
 }
 
 func TestSingleTableHasManyAssociationForSlice(t *testing.T) {
-	var users = []User{
+	users := []User{
 		*GetUser("slice-hasmany-1", Config{Team: 2}),
 		*GetUser("slice-hasmany-2", Config{Team: 0}),
 		*GetUser("slice-hasmany-3", Config{Team: 4}),
@@ -307,7 +325,7 @@ func TestSingleTableHasManyAssociationForSlice(t *testing.T) {
 }
 
 func TestPolymorphicHasManyAssociation(t *testing.T) {
-	var user = *GetUser("hasmany", Config{Toys: 2})
+	user := *GetUser("hasmany", Config{Toys: 2})
 
 	if err := DB.Create(&user).Error; err != nil {
 		t.Fatalf("errors happened when create: %v", err)
@@ -325,7 +343,7 @@ func TestPolymorphicHasManyAssociation(t *testing.T) {
 	AssertAssociationCount(t, user, "Toys", 2, "")
 
 	// Append
-	var toy = Toy{Name: "toy-has-many-append"}
+	toy := Toy{Name: "toy-has-many-append"}
 
 	if err := DB.Model(&user2).Association("Toys").Append(&toy); err != nil {
 		t.Fatalf("Error happened when append account, got %v", err)
@@ -340,14 +358,14 @@ func TestPolymorphicHasManyAssociation(t *testing.T) {
 
 	AssertAssociationCount(t, user, "Toys", 3, "AfterAppend")
 
-	var toys = []Toy{{Name: "toy-has-many-append-1-1"}, {Name: "toy-has-many-append-1-1"}}
+	toys := []Toy{{Name: "toy-has-many-append-1-1"}, {Name: "toy-has-many-append-1-1"}}
 
 	if err := DB.Model(&user2).Association("Toys").Append(&toys); err != nil {
 		t.Fatalf("Error happened when append toy, got %v", err)
 	}
 
 	for _, toy := range toys {
-		var toy = toy
+		toy := toy
 		if toy.ID == 0 {
 			t.Fatalf("Toy's ID should be created")
 		}
@@ -360,7 +378,7 @@ func TestPolymorphicHasManyAssociation(t *testing.T) {
 	AssertAssociationCount(t, user, "Toys", 5, "AfterAppendSlice")
 
 	// Replace
-	var toy2 = Toy{Name: "toy-has-many-replace"}
+	toy2 := Toy{Name: "toy-has-many-replace"}
 
 	if err := DB.Model(&user2).Association("Toys").Replace(&toy2); err != nil {
 		t.Fatalf("Error happened when append toy, got %v", err)
@@ -402,9 +420,9 @@ func TestPolymorphicHasManyAssociation(t *testing.T) {
 }
 
 func TestPolymorphicHasManyAssociationForSlice(t *testing.T) {
-	var users = []User{
+	users := []User{
 		*GetUser("slice-hasmany-1", Config{Toys: 2}),
-		*GetUser("slice-hasmany-2", Config{Toys: 0}),
+		*GetUser("slice-hasmany-2", Config{Toys: 0, Tools: 2}),
 		*GetUser("slice-hasmany-3", Config{Toys: 4}),
 	}
 
@@ -412,11 +430,20 @@ func TestPolymorphicHasManyAssociationForSlice(t *testing.T) {
 
 	// Count
 	AssertAssociationCount(t, users, "Toys", 6, "")
+	AssertAssociationCount(t, users, "Tools", 2, "")
 
 	// Find
 	var toys []Toy
 	if DB.Model(&users).Association("Toys").Find(&toys); len(toys) != 6 {
 		t.Errorf("toys count should be %v, but got %v", 6, len(toys))
+	}
+
+	// Find Tools (polymorphic with custom type and id)
+	var tools []Tools
+	DB.Model(&users).Association("Tools").Find(&tools)
+
+	if len(tools) != 2 {
+		t.Errorf("tools count should be %v, but got %v", 2, len(tools))
 	}
 
 	// Append
@@ -453,4 +480,77 @@ func TestPolymorphicHasManyAssociationForSlice(t *testing.T) {
 	// Clear
 	DB.Model(&users).Association("Toys").Clear()
 	AssertAssociationCount(t, users, "Toys", 0, "After Clear")
+}
+
+func TestHasManyAssociationUnscoped(t *testing.T) {
+	type ItemContent struct {
+		gorm.Model
+		ItemID       uint   `gorm:"not null"`
+		Name         string `gorm:"not null;type:varchar(50)"`
+		LanguageCode string `gorm:"not null;type:varchar(2)"`
+	}
+	type Item struct {
+		gorm.Model
+		Logo     string        `gorm:"not null;type:varchar(50)"`
+		Contents []ItemContent `gorm:"foreignKey:ItemID"`
+	}
+
+	tx := DB.Session(&gorm.Session{})
+	tx.Migrator().DropTable(&ItemContent{}, &Item{})
+	tx.AutoMigrate(&ItemContent{}, &Item{})
+
+	item := Item{
+		Logo: "logo",
+		Contents: []ItemContent{
+			{Name: "name", LanguageCode: "en"},
+			{Name: "ar name", LanguageCode: "ar"},
+		},
+	}
+	if err := tx.Create(&item).Error; err != nil {
+		t.Fatalf("failed to create items, got error: %v", err)
+	}
+
+	// test Replace
+	if err := tx.Model(&item).Association("Contents").Unscoped().Replace([]ItemContent{
+		{Name: "updated name", LanguageCode: "en"},
+		{Name: "ar updated name", LanguageCode: "ar"},
+		{Name: "le nom", LanguageCode: "fr"},
+	}); err != nil {
+		t.Errorf("failed to replace item content, got error: %v", err)
+	}
+
+	if count := tx.Model(&item).Association("Contents").Count(); count != 3 {
+		t.Errorf("expected %d contents, got %d", 3, count)
+	}
+
+	var contents []ItemContent
+	if err := tx.Find(&contents).Error; err != nil {
+		t.Errorf("failed to find contents, got error: %v", err)
+	}
+	if len(contents) != 3 {
+		t.Errorf("expected %d contents, got %d", 3, len(contents))
+	}
+
+	// test delete
+	if err := tx.Model(&item).Association("Contents").Unscoped().Delete(&contents[0]); err != nil {
+		t.Errorf("failed to delete Contents, got error: %v", err)
+	}
+	if count := tx.Model(&item).Association("Contents").Count(); count != 2 {
+		t.Errorf("expected %d contents, got %d", 2, count)
+	}
+
+	// test clear
+	if err := tx.Model(&item).Association("Contents").Unscoped().Clear(); err != nil {
+		t.Errorf("failed to clear contents association, got error: %v", err)
+	}
+	if count := tx.Model(&item).Association("Contents").Count(); count != 0 {
+		t.Errorf("expected %d contents, got %d", 0, count)
+	}
+
+	if err := tx.Find(&contents).Error; err != nil {
+		t.Errorf("failed to find contents, got error: %v", err)
+	}
+	if len(contents) != 0 {
+		t.Errorf("expected %d contents, got %d", 0, len(contents))
+	}
 }

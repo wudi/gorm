@@ -1,6 +1,7 @@
 package schema_test
 
 import (
+	"context"
 	"fmt"
 	"reflect"
 	"strings"
@@ -29,7 +30,7 @@ func checkSchema(t *testing.T, s *schema.Schema, v schema.Schema, primaryFields 
 			}
 
 			if !found {
-				t.Errorf("schema %v failed to found priamry key: %v", s, field)
+				t.Errorf("schema %v failed to found primary key: %v", s, field)
 			}
 		}
 	})
@@ -49,10 +50,15 @@ func checkSchemaField(t *testing.T, s *schema.Schema, f *schema.Field, fc func(*
 			}
 		}
 
-		if parsedField, ok := s.FieldsByName[f.Name]; !ok {
+		parsedField, ok := s.FieldsByDBName[f.DBName]
+		if !ok {
+			parsedField, ok = s.FieldsByName[f.Name]
+		}
+
+		if !ok {
 			t.Errorf("schema %v failed to look up field with name %v", s, f.Name)
 		} else {
-			tests.AssertObjEqual(t, parsedField, f, "Name", "DBName", "BindNames", "DataType", "PrimaryKey", "AutoIncrement", "Creatable", "Updatable", "Readable", "HasDefaultValue", "DefaultValue", "NotNull", "Unique", "Comment", "Size", "Precision", "Tag", "TagSettings")
+			tests.AssertObjEqual(t, parsedField, f, "Name", "DBName", "BindNames", "DataType", "PrimaryKey", "AutoIncrement", "Creatable", "Updatable", "Readable", "HasDefaultValue", "DefaultValue", "NotNull", "Unique", "Comment", "Size", "Precision", "TagSettings")
 
 			if f.DBName != "" {
 				if field, ok := s.FieldsByDBName[f.DBName]; !ok || parsedField != field {
@@ -62,7 +68,7 @@ func checkSchemaField(t *testing.T, s *schema.Schema, f *schema.Field, fc func(*
 
 			for _, name := range []string{f.DBName, f.Name} {
 				if name != "" {
-					if field := s.LookUpField(name); field == nil || parsedField != field {
+					if field := s.LookUpField(name); field == nil || (field.Name != name && field.DBName != name) {
 						t.Errorf("schema %v failed to look up field with dbname %v", s, f.DBName)
 					}
 				}
@@ -157,8 +163,8 @@ func checkSchemaRelation(t *testing.T, s *schema.Schema, relation Relation) {
 					t.Errorf("schema %v relation's join table tablename expects %v, but got %v", s, relation.JoinTable.Table, r.JoinTable.Table)
 				}
 
-				for _, f := range relation.JoinTable.Fields {
-					checkSchemaField(t, r.JoinTable, &f, nil)
+				for i := range relation.JoinTable.Fields {
+					checkSchemaField(t, r.JoinTable, &relation.JoinTable.Fields[i], nil)
 				}
 			}
 
@@ -195,10 +201,41 @@ func checkSchemaRelation(t *testing.T, s *schema.Schema, relation Relation) {
 	})
 }
 
+type EmbeddedRelations struct {
+	Relations         map[string]Relation
+	EmbeddedRelations map[string]EmbeddedRelations
+}
+
+func checkEmbeddedRelations(t *testing.T, actual map[string]*schema.Relationships, expected map[string]EmbeddedRelations) {
+	for name, relations := range actual {
+		rs := expected[name]
+		t.Run("CheckEmbeddedRelations/"+name, func(t *testing.T) {
+			if len(relations.Relations) != len(rs.Relations) {
+				t.Errorf("schema relations count don't match, expects %d, got %d", len(rs.Relations), len(relations.Relations))
+			}
+			if len(relations.EmbeddedRelations) != len(rs.EmbeddedRelations) {
+				t.Errorf("schema embedded relations count don't match, expects %d, got %d", len(rs.EmbeddedRelations), len(relations.EmbeddedRelations))
+			}
+			for n, rel := range relations.Relations {
+				if r, ok := rs.Relations[n]; !ok {
+					t.Errorf("failed to find relation by name %s", n)
+				} else {
+					checkSchemaRelation(t, &schema.Schema{
+						Relationships: schema.Relationships{
+							Relations: map[string]*schema.Relationship{n: rel},
+						},
+					}, r)
+				}
+			}
+			checkEmbeddedRelations(t, relations.EmbeddedRelations, rs.EmbeddedRelations)
+		})
+	}
+}
+
 func checkField(t *testing.T, s *schema.Schema, value reflect.Value, values map[string]interface{}) {
 	for k, v := range values {
 		t.Run("CheckField/"+k, func(t *testing.T) {
-			fv, _ := s.FieldsByDBName[k].ValueOf(value)
+			fv, _ := s.FieldsByDBName[k].ValueOf(context.Background(), value)
 			tests.AssertEqual(t, v, fv)
 		})
 	}

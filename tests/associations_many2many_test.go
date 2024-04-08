@@ -1,13 +1,17 @@
 package tests_test
 
 import (
+	"fmt"
+	"sync"
 	"testing"
 
+	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 	. "gorm.io/gorm/utils/tests"
 )
 
 func TestMany2ManyAssociation(t *testing.T) {
-	var user = *GetUser("many2many", Config{Languages: 2})
+	user := *GetUser("many2many", Config{Languages: 2})
 
 	if err := DB.Create(&user).Error; err != nil {
 		t.Fatalf("errors happened when create: %v", err)
@@ -26,7 +30,7 @@ func TestMany2ManyAssociation(t *testing.T) {
 	AssertAssociationCount(t, user, "Languages", 2, "")
 
 	// Append
-	var language = Language{Code: "language-many2many-append", Name: "language-many2many-append"}
+	language := Language{Code: "language-many2many-append", Name: "language-many2many-append"}
 	DB.Create(&language)
 
 	if err := DB.Model(&user2).Association("Languages").Append(&language); err != nil {
@@ -38,7 +42,7 @@ func TestMany2ManyAssociation(t *testing.T) {
 
 	AssertAssociationCount(t, user, "Languages", 3, "AfterAppend")
 
-	var languages = []Language{
+	languages := []Language{
 		{Code: "language-many2many-append-1-1", Name: "language-many2many-append-1-1"},
 		{Code: "language-many2many-append-2-1", Name: "language-many2many-append-2-1"},
 	}
@@ -55,7 +59,7 @@ func TestMany2ManyAssociation(t *testing.T) {
 	AssertAssociationCount(t, user, "Languages", 5, "AfterAppendSlice")
 
 	// Replace
-	var language2 = Language{Code: "language-many2many-replace", Name: "language-many2many-replace"}
+	language2 := Language{Code: "language-many2many-replace", Name: "language-many2many-replace"}
 	DB.Create(&language2)
 
 	if err := DB.Model(&user2).Association("Languages").Replace(&language2); err != nil {
@@ -93,8 +97,37 @@ func TestMany2ManyAssociation(t *testing.T) {
 	AssertAssociationCount(t, user2, "Languages", 0, "after clear")
 }
 
+func TestMany2ManyOmitAssociations(t *testing.T) {
+	tidbSkip(t, "not support the foreign key feature")
+
+	user := *GetUser("many2many_omit_associations", Config{Languages: 2})
+
+	if err := DB.Omit("Languages.*").Create(&user).Error; err == nil {
+		t.Fatalf("should raise error when create users without languages reference")
+	}
+
+	if err := DB.Create(&user.Languages).Error; err != nil {
+		t.Fatalf("no error should happen when create languages, but got %v", err)
+	}
+
+	if err := DB.Omit("Languages.*").Create(&user).Error; err != nil {
+		t.Fatalf("no error should happen when create user when languages exists, but got %v", err)
+	}
+
+	// Find
+	var languages []Language
+	if DB.Model(&user).Association("Languages").Find(&languages); len(languages) != 2 {
+		t.Errorf("languages count should be %v, but got %v", 2, len(languages))
+	}
+
+	newLang := Language{Code: "omitmany2many", Name: "omitmany2many"}
+	if err := DB.Model(&user).Omit("Languages.*").Association("Languages").Replace(&newLang); err == nil {
+		t.Errorf("should failed to insert languages due to constraint failed, error: %v", err)
+	}
+}
+
 func TestMany2ManyAssociationForSlice(t *testing.T) {
-	var users = []User{
+	users := []User{
 		*GetUser("slice-many2many-1", Config{Languages: 2}),
 		*GetUser("slice-many2many-2", Config{Languages: 0}),
 		*GetUser("slice-many2many-3", Config{Languages: 4}),
@@ -112,11 +145,11 @@ func TestMany2ManyAssociationForSlice(t *testing.T) {
 	}
 
 	// Append
-	var languages1 = []Language{
+	languages1 := []Language{
 		{Code: "language-many2many-append-1", Name: "language-many2many-append-1"},
 	}
-	var languages2 = []Language{}
-	var languages3 = []Language{
+	languages2 := []Language{}
+	languages3 := []Language{
 		{Code: "language-many2many-append-3-1", Name: "language-many2many-append-3-1"},
 		{Code: "language-many2many-append-3-2", Name: "language-many2many-append-3-2"},
 	}
@@ -164,7 +197,7 @@ func TestMany2ManyAssociationForSlice(t *testing.T) {
 }
 
 func TestSingleTableMany2ManyAssociation(t *testing.T) {
-	var user = *GetUser("many2many", Config{Friends: 2})
+	user := *GetUser("many2many", Config{Friends: 2})
 
 	if err := DB.Create(&user).Error; err != nil {
 		t.Fatalf("errors happened when create: %v", err)
@@ -183,7 +216,7 @@ func TestSingleTableMany2ManyAssociation(t *testing.T) {
 	AssertAssociationCount(t, user, "Friends", 2, "")
 
 	// Append
-	var friend = *GetUser("friend", Config{})
+	friend := *GetUser("friend", Config{})
 
 	if err := DB.Model(&user2).Association("Friends").Append(&friend); err != nil {
 		t.Fatalf("Error happened when append account, got %v", err)
@@ -194,7 +227,7 @@ func TestSingleTableMany2ManyAssociation(t *testing.T) {
 
 	AssertAssociationCount(t, user, "Friends", 3, "AfterAppend")
 
-	var friends = []*User{GetUser("friend-append-1", Config{}), GetUser("friend-append-2", Config{})}
+	friends := []*User{GetUser("friend-append-1", Config{}), GetUser("friend-append-2", Config{})}
 
 	if err := DB.Model(&user2).Association("Friends").Append(&friends); err != nil {
 		t.Fatalf("Error happened when append friend, got %v", err)
@@ -207,7 +240,7 @@ func TestSingleTableMany2ManyAssociation(t *testing.T) {
 	AssertAssociationCount(t, user, "Friends", 5, "AfterAppendSlice")
 
 	// Replace
-	var friend2 = *GetUser("friend-replace-2", Config{})
+	friend2 := *GetUser("friend-replace-2", Config{})
 
 	if err := DB.Model(&user2).Association("Friends").Replace(&friend2); err != nil {
 		t.Fatalf("Error happened when append friend, got %v", err)
@@ -245,7 +278,7 @@ func TestSingleTableMany2ManyAssociation(t *testing.T) {
 }
 
 func TestSingleTableMany2ManyAssociationForSlice(t *testing.T) {
-	var users = []User{
+	users := []User{
 		*GetUser("slice-many2many-1", Config{Team: 2}),
 		*GetUser("slice-many2many-2", Config{Team: 0}),
 		*GetUser("slice-many2many-3", Config{Team: 4}),
@@ -263,17 +296,17 @@ func TestSingleTableMany2ManyAssociationForSlice(t *testing.T) {
 	}
 
 	// Append
-	var teams1 = []User{*GetUser("friend-append-1", Config{})}
-	var teams2 = []User{}
-	var teams3 = []*User{GetUser("friend-append-3-1", Config{}), GetUser("friend-append-3-2", Config{})}
+	teams1 := []User{*GetUser("friend-append-1", Config{})}
+	teams2 := []User{}
+	teams3 := []*User{GetUser("friend-append-3-1", Config{}), GetUser("friend-append-3-2", Config{})}
 
 	DB.Model(&users).Association("Team").Append(&teams1, &teams2, &teams3)
 
 	AssertAssociationCount(t, users, "Team", 9, "After Append")
 
-	var teams2_1 = []User{*GetUser("friend-replace-1", Config{}), *GetUser("friend-replace-2", Config{})}
-	var teams2_2 = []User{*GetUser("friend-replace-2-1", Config{}), *GetUser("friend-replace-2-2", Config{})}
-	var teams2_3 = GetUser("friend-replace-3-1", Config{})
+	teams2_1 := []User{*GetUser("friend-replace-1", Config{}), *GetUser("friend-replace-2", Config{})}
+	teams2_2 := []User{*GetUser("friend-replace-2-1", Config{}), *GetUser("friend-replace-2-2", Config{})}
+	teams2_3 := GetUser("friend-replace-3-1", Config{})
 
 	// Replace
 	DB.Model(&users).Association("Team").Replace(&teams2_1, &teams2_2, teams2_3)
@@ -296,4 +329,97 @@ func TestSingleTableMany2ManyAssociationForSlice(t *testing.T) {
 	// Clear
 	DB.Model(&users).Association("Team").Clear()
 	AssertAssociationCount(t, users, "Team", 0, "After Clear")
+}
+
+func TestDuplicateMany2ManyAssociation(t *testing.T) {
+	user1 := User{Name: "TestDuplicateMany2ManyAssociation-1", Languages: []Language{
+		{Code: "TestDuplicateMany2ManyAssociation-language-1"},
+		{Code: "TestDuplicateMany2ManyAssociation-language-2"},
+	}}
+
+	user2 := User{Name: "TestDuplicateMany2ManyAssociation-1", Languages: []Language{
+		{Code: "TestDuplicateMany2ManyAssociation-language-1"},
+		{Code: "TestDuplicateMany2ManyAssociation-language-3"},
+	}}
+	users := []*User{&user1, &user2}
+	var err error
+	err = DB.Session(&gorm.Session{FullSaveAssociations: true}).Save(users).Error
+	AssertEqual(t, nil, err)
+
+	var findUser1 User
+	err = DB.Preload("Languages").Where("id = ?", user1.ID).First(&findUser1).Error
+	AssertEqual(t, nil, err)
+	AssertEqual(t, user1, findUser1)
+
+	var findUser2 User
+	err = DB.Preload("Languages").Where("id = ?", user2.ID).First(&findUser2).Error
+	AssertEqual(t, nil, err)
+	AssertEqual(t, user2, findUser2)
+}
+
+func TestConcurrentMany2ManyAssociation(t *testing.T) {
+	db, err := OpenTestConnection(&gorm.Config{})
+	if err != nil {
+		t.Fatalf("open test connection failed, err: %+v", err)
+	}
+
+	count := 3
+
+	var languages []Language
+	for i := 0; i < count; i++ {
+		language := Language{Code: fmt.Sprintf("consurrent %d", i)}
+		db.Create(&language)
+		languages = append(languages, language)
+	}
+
+	user := User{}
+	db.Create(&user)
+	db.Preload("Languages").FirstOrCreate(&user)
+
+	var wg sync.WaitGroup
+	for i := 0; i < count; i++ {
+		wg.Add(1)
+		go func(user User, language Language) {
+			err := db.Model(&user).Association("Languages").Append(&language)
+			AssertEqual(t, err, nil)
+
+			wg.Done()
+		}(user, languages[i])
+	}
+	wg.Wait()
+
+	var find User
+	err = db.Preload(clause.Associations).Where("id = ?", user.ID).First(&find).Error
+	AssertEqual(t, err, nil)
+	AssertAssociationCount(t, find, "Languages", int64(count), "after concurrent append")
+}
+
+func TestMany2ManyDuplicateBelongsToAssociation(t *testing.T) {
+	user1 := User{Name: "TestMany2ManyDuplicateBelongsToAssociation-1", Friends: []*User{
+		{Name: "TestMany2ManyDuplicateBelongsToAssociation-friend-1", Company: Company{
+			ID:   1,
+			Name: "Test-company-1",
+		}},
+	}}
+
+	user2 := User{Name: "TestMany2ManyDuplicateBelongsToAssociation-2", Friends: []*User{
+		{Name: "TestMany2ManyDuplicateBelongsToAssociation-friend-2", Company: Company{
+			ID:   1,
+			Name: "Test-company-1",
+		}},
+	}}
+	users := []*User{&user1, &user2}
+	var err error
+	err = DB.Session(&gorm.Session{FullSaveAssociations: true}).Save(users).Error
+	AssertEqual(t, nil, err)
+
+	var findUser1 User
+	err = DB.Preload("Friends.Company").Where("id = ?", user1.ID).First(&findUser1).Error
+	AssertEqual(t, nil, err)
+	AssertEqual(t, user1, findUser1)
+
+	var findUser2 User
+	err = DB.Preload("Friends.Company").Where("id = ?", user2.ID).First(&findUser2).Error
+	AssertEqual(t, nil, err)
+	AssertEqual(t, user2, findUser2)
 }

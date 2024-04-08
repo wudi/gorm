@@ -26,9 +26,11 @@ type User struct {
 	Active    *bool
 }
 
-type mytime time.Time
-type myint int
-type mybool = bool
+type (
+	mytime time.Time
+	myint  int
+	mybool = bool
+)
 
 type AdvancedDataTypeUser struct {
 	ID           sql.NullInt64
@@ -38,4 +40,25 @@ type AdvancedDataTypeUser struct {
 	DeletedAt    *mytime
 	Active       mybool
 	Admin        *mybool
+}
+
+type BaseModel struct {
+	ID        uint
+	CreatedAt time.Time
+	CreatedBy *int
+	Created   *VersionUser `gorm:"foreignKey:CreatedBy"`
+	UpdatedAt time.Time
+	DeletedAt gorm.DeletedAt `gorm:"index"`
+}
+
+type VersionModel struct {
+	BaseModel
+	Version int
+}
+
+type VersionUser struct {
+	VersionModel
+	Name     string
+	Age      uint
+	Birthday *time.Time
 }

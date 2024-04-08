@@ -1,11 +1,14 @@
 package tests_test
 
 import (
+	"os"
 	"sort"
 	"strconv"
 	"strings"
 	"testing"
 	"time"
+
+	"gorm.io/gorm"
 
 	. "gorm.io/gorm/utils/tests"
 )
@@ -19,6 +22,8 @@ type Config struct {
 	Team      int
 	Languages int
 	Friends   int
+	NamedPet  bool
+	Tools     int
 }
 
 func GetUser(name string, config Config) *User {
@@ -43,6 +48,10 @@ func GetUser(name string, config Config) *User {
 		user.Toys = append(user.Toys, Toy{Name: name + "_toy_" + strconv.Itoa(i+1)})
 	}
 
+	for i := 0; i < config.Tools; i++ {
+		user.Tools = append(user.Tools, Tools{Name: name + "_tool_" + strconv.Itoa(i+1)})
+	}
+
 	if config.Company {
 		user.Company = Company{Name: "company-" + name}
 	}
@@ -65,16 +74,29 @@ func GetUser(name string, config Config) *User {
 		user.Friends = append(user.Friends, GetUser(name+"_friend_"+strconv.Itoa(i+1), Config{}))
 	}
 
+	if config.NamedPet {
+		user.NamedPet = &Pet{Name: name + "_namepet"}
+	}
+
 	return &user
 }
 
+func CheckPetUnscoped(t *testing.T, pet Pet, expect Pet) {
+	doCheckPet(t, pet, expect, true)
+}
+
 func CheckPet(t *testing.T, pet Pet, expect Pet) {
+	doCheckPet(t, pet, expect, false)
+}
+
+func doCheckPet(t *testing.T, pet Pet, expect Pet, unscoped bool) {
 	if pet.ID != 0 {
 		var newPet Pet
-		if err := DB.Where("id = ?", pet.ID).First(&newPet).Error; err != nil {
+		if err := db(unscoped).Where("id = ?", pet.ID).First(&newPet).Error; err != nil {
 			t.Fatalf("errors happened when query: %v", err)
 		} else {
 			AssertObjEqual(t, newPet, pet, "ID", "CreatedAt", "UpdatedAt", "DeletedAt", "UserID", "Name")
+			AssertObjEqual(t, newPet, expect, "ID", "CreatedAt", "UpdatedAt", "DeletedAt", "UserID", "Name")
 		}
 	}
 
@@ -87,17 +109,27 @@ func CheckPet(t *testing.T, pet Pet, expect Pet) {
 	}
 }
 
+func CheckUserUnscoped(t *testing.T, user User, expect User) {
+	doCheckUser(t, user, expect, true)
+}
+
 func CheckUser(t *testing.T, user User, expect User) {
+	doCheckUser(t, user, expect, false)
+}
+
+func doCheckUser(t *testing.T, user User, expect User, unscoped bool) {
 	if user.ID != 0 {
 		var newUser User
-		if err := DB.Where("id = ?", user.ID).First(&newUser).Error; err != nil {
+		if err := db(unscoped).Where("id = ?", user.ID).First(&newUser).Error; err != nil {
 			t.Fatalf("errors happened when query: %v", err)
 		} else {
-			AssertObjEqual(t, newUser, user, "ID", "CreatedAt", "UpdatedAt", "DeletedAt", "Name", "Age", "Birthday", "CompanyID", "ManagerID", "Active")
+			AssertObjEqual(t, newUser, user, "ID", "CreatedAt", "UpdatedAt", "DeletedAt", "Name", "Age", "Birthday",
+				"CompanyID", "ManagerID", "Active")
 		}
 	}
 
-	AssertObjEqual(t, user, expect, "ID", "CreatedAt", "UpdatedAt", "DeletedAt", "Name", "Age", "Birthday", "CompanyID", "ManagerID", "Active")
+	AssertObjEqual(t, user, expect, "ID", "CreatedAt", "UpdatedAt", "DeletedAt", "Name", "Age", "Birthday", "CompanyID",
+		"ManagerID", "Active")
 
 	t.Run("Account", func(t *testing.T) {
 		AssertObjEqual(t, user.Account, expect.Account, "ID", "CreatedAt", "UpdatedAt", "DeletedAt", "UserID", "Number")
@@ -107,15 +139,16 @@ func CheckUser(t *testing.T, user User, expect User) {
 				t.Errorf("Account's foreign key should be saved")
 			} else {
 				var account Account
-				DB.First(&account, "user_id = ?", user.ID)
-				AssertObjEqual(t, account, user.Account, "ID", "CreatedAt", "UpdatedAt", "DeletedAt", "UserID", "Number")
+				db(unscoped).First(&account, "user_id = ?", user.ID)
+				AssertObjEqual(t, account, user.Account, "ID", "CreatedAt", "UpdatedAt", "DeletedAt", "UserID",
+					"Number")
 			}
 		}
 	})
 
 	t.Run("Pets", func(t *testing.T) {
 		if len(user.Pets) != len(expect.Pets) {
-			t.Errorf("pets should equal, expect: %v, got %v", len(expect.Pets), len(user.Pets))
+			t.Fatalf("pets should equal, expect: %v, got %v", len(expect.Pets), len(user.Pets))
 		}
 
 		sort.Slice(user.Pets, func(i, j int) bool {
@@ -130,14 +163,14 @@ func CheckUser(t *testing.T, user User, expect User) {
 			if pet == nil || expect.Pets[idx] == nil {
 				t.Errorf("pets#%v should equal, expect: %v, got %v", idx, expect.Pets[idx], pet)
 			} else {
-				CheckPet(t, *pet, *expect.Pets[idx])
+				doCheckPet(t, *pet, *expect.Pets[idx], unscoped)
 			}
 		}
 	})
 
 	t.Run("Toys", func(t *testing.T) {
 		if len(user.Toys) != len(expect.Toys) {
-			t.Errorf("toys should equal, expect: %v, got %v", len(expect.Toys), len(user.Toys))
+			t.Fatalf("toys should equal, expect: %v, got %v", len(expect.Toys), len(user.Toys))
 		}
 
 		sort.Slice(user.Toys, func(i, j int) bool {
@@ -167,8 +200,11 @@ func CheckUser(t *testing.T, user User, expect User) {
 				t.Errorf("Manager's foreign key should be saved")
 			} else {
 				var manager User
-				DB.First(&manager, "id = ?", *user.ManagerID)
-				AssertObjEqual(t, manager, user.Manager, "ID", "CreatedAt", "UpdatedAt", "DeletedAt", "Name", "Age", "Birthday", "CompanyID", "ManagerID", "Active")
+				db(unscoped).First(&manager, "id = ?", *user.ManagerID)
+				AssertObjEqual(t, manager, user.Manager, "ID", "CreatedAt", "UpdatedAt", "DeletedAt", "Name", "Age",
+					"Birthday", "CompanyID", "ManagerID", "Active")
+				AssertObjEqual(t, manager, expect.Manager, "ID", "CreatedAt", "UpdatedAt", "DeletedAt", "Name", "Age",
+					"Birthday", "CompanyID", "ManagerID", "Active")
 			}
 		} else if user.ManagerID != nil {
 			t.Errorf("Manager should not be created for zero value, got: %+v", user.ManagerID)
@@ -177,7 +213,7 @@ func CheckUser(t *testing.T, user User, expect User) {
 
 	t.Run("Team", func(t *testing.T) {
 		if len(user.Team) != len(expect.Team) {
-			t.Errorf("Team should equal, expect: %v, got %v", len(expect.Team), len(user.Team))
+			t.Fatalf("Team should equal, expect: %v, got %v", len(expect.Team), len(user.Team))
 		}
 
 		sort.Slice(user.Team, func(i, j int) bool {
@@ -189,13 +225,14 @@ func CheckUser(t *testing.T, user User, expect User) {
 		})
 
 		for idx, team := range user.Team {
-			AssertObjEqual(t, team, expect.Team[idx], "ID", "CreatedAt", "UpdatedAt", "DeletedAt", "Name", "Age", "Birthday", "CompanyID", "ManagerID", "Active")
+			AssertObjEqual(t, team, expect.Team[idx], "ID", "CreatedAt", "UpdatedAt", "DeletedAt", "Name", "Age",
+				"Birthday", "CompanyID", "ManagerID", "Active")
 		}
 	})
 
 	t.Run("Languages", func(t *testing.T) {
 		if len(user.Languages) != len(expect.Languages) {
-			t.Errorf("Languages should equal, expect: %v, got %v", len(expect.Languages), len(user.Languages))
+			t.Fatalf("Languages should equal, expect: %v, got %v", len(expect.Languages), len(user.Languages))
 		}
 
 		sort.Slice(user.Languages, func(i, j int) bool {
@@ -212,7 +249,7 @@ func CheckUser(t *testing.T, user User, expect User) {
 
 	t.Run("Friends", func(t *testing.T) {
 		if len(user.Friends) != len(expect.Friends) {
-			t.Errorf("Friends should equal, expect: %v, got %v", len(expect.Friends), len(user.Friends))
+			t.Fatalf("Friends should equal, expect: %v, got %v", len(expect.Friends), len(user.Friends))
 		}
 
 		sort.Slice(user.Friends, func(i, j int) bool {
@@ -224,7 +261,34 @@ func CheckUser(t *testing.T, user User, expect User) {
 		})
 
 		for idx, friend := range user.Friends {
-			AssertObjEqual(t, friend, expect.Friends[idx], "ID", "CreatedAt", "UpdatedAt", "DeletedAt", "Name", "Age", "Birthday", "CompanyID", "ManagerID", "Active")
+			AssertObjEqual(t, friend, expect.Friends[idx], "ID", "CreatedAt", "UpdatedAt", "DeletedAt", "Name", "Age",
+				"Birthday", "CompanyID", "ManagerID", "Active")
 		}
 	})
+}
+
+func tidbSkip(t *testing.T, reason string) {
+	if isTiDB() {
+		t.Skipf("This test case skipped, because of TiDB '%s'", reason)
+	}
+}
+
+func isTiDB() bool {
+	return os.Getenv("GORM_DIALECT") == "tidb"
+}
+
+func isMysql() bool {
+	return os.Getenv("GORM_DIALECT") == "mysql"
+}
+
+func isSqlite() bool {
+	return os.Getenv("GORM_DIALECT") == "sqlite"
+}
+
+func db(unscoped bool) *gorm.DB {
+	if unscoped {
+		return DB.Unscoped()
+	} else {
+		return DB
+	}
 }

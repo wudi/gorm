@@ -13,8 +13,14 @@ import (
 
 func AssertObjEqual(t *testing.T, r, e interface{}, names ...string) {
 	for _, name := range names {
-		got := reflect.Indirect(reflect.ValueOf(r)).FieldByName(name).Interface()
-		expect := reflect.Indirect(reflect.ValueOf(e)).FieldByName(name).Interface()
+		rv := reflect.Indirect(reflect.ValueOf(r))
+		ev := reflect.Indirect(reflect.ValueOf(e))
+		if rv.IsValid() != ev.IsValid() {
+			t.Errorf("%v: expect: %+v, got %+v", utils.FileWithLineNum(), r, e)
+			return
+		}
+		got := rv.FieldByName(name).Interface()
+		expect := ev.FieldByName(name).Interface()
 		t.Run(name, func(t *testing.T) {
 			AssertEqual(t, got, expect)
 		})
@@ -27,7 +33,7 @@ func AssertEqual(t *testing.T, got, expect interface{}) {
 			if curTime, ok := got.(time.Time); ok {
 				format := "2006-01-02T15:04:05Z07:00"
 
-				if curTime.Round(time.Second).Format(format) != expect.(time.Time).Round(time.Second).Format(format) && curTime.Truncate(time.Second).Format(format) != expect.(time.Time).Truncate(time.Second).Format(format) {
+				if curTime.Round(time.Second).UTC().Format(format) != expect.(time.Time).Round(time.Second).UTC().Format(format) && curTime.Truncate(time.Second).UTC().Format(format) != expect.(time.Time).Truncate(time.Second).UTC().Format(format) {
 					t.Errorf("%v: expect: %v, got %v after time round", utils.FileWithLineNum(), expect.(time.Time), curTime)
 				}
 			} else if fmt.Sprint(got) != fmt.Sprint(expect) {
@@ -76,23 +82,30 @@ func AssertEqual(t *testing.T, got, expect interface{}) {
 					}
 				} else {
 					name := reflect.ValueOf(got).Type().Elem().Name()
-					t.Errorf("%v expects length: %v, got %v", name, reflect.ValueOf(expect).Len(), reflect.ValueOf(got).Len())
+					t.Errorf("%v expects length: %v, got %v (expects: %+v, got %+v)", name, reflect.ValueOf(expect).Len(), reflect.ValueOf(got).Len(), expect, got)
 				}
 				return
 			}
 		}
 
 		if reflect.ValueOf(got).Kind() == reflect.Struct {
-			if reflect.ValueOf(got).NumField() == reflect.ValueOf(expect).NumField() {
-				for i := 0; i < reflect.ValueOf(got).NumField(); i++ {
-					if fieldStruct := reflect.ValueOf(got).Type().Field(i); ast.IsExported(fieldStruct.Name) {
-						field := reflect.ValueOf(got).Field(i)
-						t.Run(fieldStruct.Name, func(t *testing.T) {
-							AssertEqual(t, field.Interface(), reflect.ValueOf(expect).Field(i).Interface())
-						})
+			if reflect.ValueOf(expect).Kind() == reflect.Struct {
+				if reflect.ValueOf(got).NumField() == reflect.ValueOf(expect).NumField() {
+					exported := false
+					for i := 0; i < reflect.ValueOf(got).NumField(); i++ {
+						if fieldStruct := reflect.ValueOf(got).Type().Field(i); ast.IsExported(fieldStruct.Name) {
+							exported = true
+							field := reflect.ValueOf(got).Field(i)
+							t.Run(fieldStruct.Name, func(t *testing.T) {
+								AssertEqual(t, field.Interface(), reflect.ValueOf(expect).Field(i).Interface())
+							})
+						}
+					}
+
+					if exported {
+						return
 					}
 				}
-				return
 			}
 		}
 
@@ -102,6 +115,9 @@ func AssertEqual(t *testing.T, got, expect interface{}) {
 		} else if reflect.ValueOf(expect).Type().ConvertibleTo(reflect.ValueOf(got).Type()) {
 			expect = reflect.ValueOf(got).Convert(reflect.ValueOf(got).Type()).Interface()
 			isEqual()
+		} else {
+			t.Errorf("%v: expect: %+v, got %+v", utils.FileWithLineNum(), expect, got)
+			return
 		}
 	}
 }

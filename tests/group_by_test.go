@@ -7,7 +7,7 @@ import (
 )
 
 func TestGroupBy(t *testing.T) {
-	var users = []User{{
+	users := []User{{
 		Name:     "groupby",
 		Age:      10,
 		Birthday: Now(),
@@ -67,6 +67,27 @@ func TestGroupBy(t *testing.T) {
 		t.Errorf("name should be groupby, but got %v, total should be 660, but got %v", name, total)
 	}
 
+	result := struct {
+		Name  string
+		Total int64
+	}{}
+
+	if err := DB.Model(&User{}).Select("name, sum(age) as total").Where("name LIKE ?", "groupby%").Group("name").Having("name = ?", "groupby1").Find(&result).Error; err != nil {
+		t.Errorf("no error should happen, but got %v", err)
+	}
+
+	if result.Name != "groupby1" || result.Total != 660 {
+		t.Errorf("name should be groupby, total should be 660, but got %+v", result)
+	}
+
+	if err := DB.Model(&User{}).Select("name, sum(age) as total").Where("name LIKE ?", "groupby%").Group("name").Having("name = ?", "groupby1").Scan(&result).Error; err != nil {
+		t.Errorf("no error should happen, but got %v", err)
+	}
+
+	if result.Name != "groupby1" || result.Total != 660 {
+		t.Errorf("name should be groupby, total should be 660, but got %+v", result)
+	}
+
 	var active bool
 	if err := DB.Model(&User{}).Select("name, active, sum(age)").Where("name = ? and active = ?", "groupby", true).Group("name").Group("active").Row().Scan(&name, &active, &total); err != nil {
 		t.Errorf("no error should happen, but got %v", err)
@@ -74,5 +95,15 @@ func TestGroupBy(t *testing.T) {
 
 	if name != "groupby" || active != true || total != 40 {
 		t.Errorf("group by two columns, name %v, age %v, active: %v", name, total, active)
+	}
+
+	if DB.Dialector.Name() == "mysql" {
+		if err := DB.Model(&User{}).Select("name, age as total").Where("name LIKE ?", "groupby%").Having("total > ?", 300).Scan(&result).Error; err != nil {
+			t.Errorf("no error should happen, but got %v", err)
+		}
+
+		if result.Name != "groupby1" || result.Total != 330 {
+			t.Errorf("name should be groupby, total should be 660, but got %+v", result)
+		}
 	}
 }

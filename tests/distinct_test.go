@@ -1,13 +1,15 @@
 package tests_test
 
 import (
+	"regexp"
 	"testing"
 
+	"gorm.io/gorm"
 	. "gorm.io/gorm/utils/tests"
 )
 
 func TestDistinct(t *testing.T) {
-	var users = []User{
+	users := []User{
 		*GetUser("distinct", Config{}),
 		*GetUser("distinct", Config{}),
 		*GetUser("distinct", Config{}),
@@ -28,6 +30,12 @@ func TestDistinct(t *testing.T) {
 	DB.Model(&User{}).Where("name like ?", "distinct%").Distinct().Order("name").Pluck("Name", &names1)
 
 	AssertEqual(t, names1, []string{"distinct", "distinct-2", "distinct-3"})
+
+	var names2 []string
+	DB.Scopes(func(db *gorm.DB) *gorm.DB {
+		return db.Table("users")
+	}).Where("name like ?", "distinct%").Order("name").Pluck("name", &names2)
+	AssertEqual(t, names2, []string{"distinct", "distinct", "distinct", "distinct-2", "distinct-3"})
 
 	var results []User
 	if err := DB.Distinct("name", "age").Where("name like ?", "distinct%").Order("name, age desc").Find(&results).Error; err != nil {
@@ -56,5 +64,11 @@ func TestDistinct(t *testing.T) {
 
 	if err := DB.Model(&User{}).Distinct("name").Where("name like ?", "distinct%").Count(&count).Error; err != nil || count != 3 {
 		t.Errorf("failed to query users count, got error: %v, count %v", err, count)
+	}
+
+	dryDB := DB.Session(&gorm.Session{DryRun: true})
+	r := dryDB.Distinct("u.id, u.*").Table("user_speaks as s").Joins("inner join users as u on u.id = s.user_id").Where("s.language_code ='US' or s.language_code ='ES'").Find(&User{})
+	if !regexp.MustCompile(`SELECT DISTINCT u\.id, u\.\* FROM user_speaks as s inner join users as u`).MatchString(r.Statement.SQL.String()) {
+		t.Fatalf("Build Distinct with u.*, but got %v", r.Statement.SQL.String())
 	}
 }
